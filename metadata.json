@@ -1,0 +1,6 @@
+{
+  "name": "BillSlayer AI",
+  "description": "Unified AI-powered medical billing audit, insurance dispute appeals, and personal injury legal document generator with secure multi-user role privacy.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
