@@ -2,14 +2,16 @@ import React, { useState, useEffect } from "react";
 import { User, UserRole, PLANS } from "../types";
 import { 
   Users, DollarSign, Cpu, ShieldAlert, Key, Settings, Loader2, 
-  CheckCircle, Plus, Edit, AlertCircle, RefreshCw, Trash2, ShieldCheck, UserCheck
+  CheckCircle, Plus, Edit, AlertCircle, RefreshCw, Trash2, ShieldCheck, UserCheck, Database, LayoutDashboard
 } from "lucide-react";
+import DatabaseExplorer from "../components/DatabaseExplorer";
 
 interface AdminDashboardProps {
   user: User;
 }
 
 export default function AdminDashboard({ user }: AdminDashboardProps) {
+  const [adminView, setAdminView] = useState<"overview" | "database">("overview");
   const [users, setUsers] = useState<User[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [metrics, setMetrics] = useState<any>({
@@ -188,7 +190,7 @@ export default function AdminDashboard({ user }: AdminDashboardProps) {
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 text-slate-800 font-sans">
       
-      {/* Header */}
+      {/* Header & Sub-Navigation */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
           <span className="text-rose-600 font-bold text-[10px] uppercase tracking-widest bg-rose-50 px-3 py-1 rounded-full border border-rose-200 shadow-sm inline-block">
@@ -197,17 +199,50 @@ export default function AdminDashboard({ user }: AdminDashboardProps) {
           <h1 className="text-3xl font-black text-slate-900 tracking-tight mt-2.5">
             Platform Operations Panel
           </h1>
-         
         </div>
 
-        <button
-          onClick={fetchAdminData}
-          className="bg-white hover:bg-slate-50 active:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold px-4.5 py-2.5 rounded-xl transition shadow-sm cursor-pointer flex items-center gap-2 self-start sm:self-auto"
-        >
-          <RefreshCw className="w-4 h-4 text-emerald-600" />
-          Refresh Global Ledger
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div className="bg-slate-200/80 p-1 rounded-2xl flex items-center border border-slate-300/60 shadow-inner">
+            <button
+              onClick={() => setAdminView("overview")}
+              className={`px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-2 ${
+                adminView === "overview" 
+                  ? "bg-white text-slate-900 shadow-sm" 
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <LayoutDashboard className="w-4 h-4 text-indigo-600" />
+              Platform Overview
+            </button>
+            <button
+              onClick={() => setAdminView("database")}
+              className={`px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-2 ${
+                adminView === "database" 
+                  ? "bg-slate-900 text-white shadow-sm" 
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Database className="w-4 h-4 text-emerald-400" />
+              Backend Database Inspector
+            </button>
+          </div>
+
+          {adminView === "overview" && (
+            <button
+              onClick={fetchAdminData}
+              className="bg-white hover:bg-slate-50 active:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold px-4 py-2.5 rounded-xl transition shadow-sm cursor-pointer flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4 text-emerald-600" />
+              Refresh
+            </button>
+          )}
+        </div>
       </div>
+
+      {adminView === "database" ? (
+        <DatabaseExplorer />
+      ) : (
+        <>
 
       {/* Safety System Warning regarding API Costs vs Platform Revenue */}
       <div className={`border p-5 rounded-2xl mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm ${
@@ -579,6 +614,9 @@ export default function AdminDashboard({ user }: AdminDashboardProps) {
             </div>
           </div>
         </div>
+      )}
+
+        </>
       )}
 
     </div>

@@ -6,6 +6,8 @@ import dotenv from "dotenv";
 dotenv.config();
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import initSqlJs, { Database } from "sql.js";
+import bcrypt from "bcryptjs";
 import { User, UserRole, Case, GeneratedDocument, Match, AppNotification, PaymentRecord, ApiCostTracker, PLANS, PRICING_PER_CASE } from "./src/types";
 
 // Initialize Gemini Client
@@ -23,6 +25,8 @@ if (apiKey) {
 }
 
 const DB_FILE = path.join(process.cwd(), "db.json");
+const SQLITE_FILE = path.join(process.cwd(), "app_database.sqlite");
+let sqliteDb: Database | null = null;
 
 interface DbSchema {
   users: User[];
@@ -34,62 +38,439 @@ interface DbSchema {
   apiCosts: ApiCostTracker[];
 }
 
-function seedDefaultData(db: DbSchema) {
-  // No mock/dummy data seeded by default as requested by user
+function saveSqliteToDisk() {
+  if (sqliteDb) {
+    try {
+      const data = sqliteDb.export();
+      fs.writeFileSync(SQLITE_FILE, Buffer.from(data));
+    } catch (e) {
+      console.error("Error writing SQLite database to disk:", e);
+    }
+  }
+}
+
+async function initDatabase() {
+  const getSql = typeof initSqlJs === "function" ? initSqlJs : (initSqlJs as any)?.default || initSqlJs;
+  const SQL = await getSql();
+  if (fs.existsSync(SQLITE_FILE)) {
+    try {
+      const fileBuffer = fs.readFileSync(SQLITE_FILE);
+      sqliteDb = new SQL.Database(fileBuffer);
+      console.log("Loaded existing backend SQLite database from app_database.sqlite");
+    } catch (e) {
+      console.error("Failed to read SQLite file, creating new database", e);
+      sqliteDb = new SQL.Database();
+    }
+  } else {
+    sqliteDb = new SQL.Database();
+    console.log("Initialized fresh backend SQLite database");
+  }
+
+  // Create relational schema tables
+  sqliteDb.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE,
+      name TEXT,
+      role TEXT,
+      password TEXT,
+      licenseNumber TEXT,
+      orgName TEXT,
+      orgType TEXT,
+      acceptedTerms INTEGER,
+      planId TEXT,
+      availableCredits INTEGER,
+      totalCreditsUsed INTEGER,
+      matchmakingConsent INTEGER,
+      isBlocked INTEGER,
+      createdAt TEXT,
+      planExpiresAt TEXT,
+      resetOtp TEXT,
+      resetOtpExpiresAt INTEGER
+    );
+  `);
+
+  sqliteDb.run(`
+    CREATE TABLE IF NOT EXISTS cases (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      description TEXT,
+      patientName TEXT,
+      userId TEXT,
+      role TEXT,
+      createdAt TEXT,
+      status TEXT,
+      files TEXT
+    );
+  `);
+
+  sqliteDb.run(`
+    CREATE TABLE IF NOT EXISTS documents (
+      id TEXT PRIMARY KEY,
+      caseId TEXT,
+      userId TEXT,
+      role TEXT,
+      title TEXT,
+      serviceType TEXT,
+      content TEXT,
+      createdAt TEXT,
+      downloaded INTEGER,
+      isLocked INTEGER
+    );
+  `);
+
+  sqliteDb.run(`
+    CREATE TABLE IF NOT EXISTS matches (
+      id TEXT PRIMARY KEY,
+      clientId TEXT,
+      clientName TEXT,
+      clientEmail TEXT,
+      lawyerId TEXT,
+      lawyerName TEXT,
+      lawyerEmail TEXT,
+      clientConsented INTEGER,
+      lawyerConsented INTEGER,
+      status TEXT,
+      initiatedBy TEXT,
+      createdAt TEXT,
+      isTimedOut INTEGER,
+      notified INTEGER
+    );
+  `);
+
+  sqliteDb.run(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      userId TEXT,
+      message TEXT,
+      type TEXT,
+      createdAt TEXT,
+      read INTEGER
+    );
+  `);
+
+  sqliteDb.run(`
+    CREATE TABLE IF NOT EXISTS payments (
+      id TEXT PRIMARY KEY,
+      userId TEXT,
+      userEmail TEXT,
+      amount REAL,
+      item TEXT,
+      createdAt TEXT
+    );
+  `);
+
+  sqliteDb.run(`
+    CREATE TABLE IF NOT EXISTS api_costs (
+      id TEXT PRIMARY KEY,
+      userId TEXT,
+      userEmail TEXT,
+      role TEXT,
+      serviceType TEXT,
+      cost REAL,
+      revenue REAL,
+      createdAt TEXT
+    );
+  `);
+
+  // Migrate legacy db.json data if present and SQLite database is fresh
+  if (fs.existsSync(DB_FILE)) {
+    try {
+      const userCheck = sqliteDb.exec("SELECT COUNT(*) as cnt FROM users");
+      const userCount = userCheck.length > 0 ? userCheck[0].values[0][0] : 0;
+
+      if (userCount === 0) {
+        console.log("Migrating legacy db.json data to SQLite relational database with bcrypt password hashing...");
+        const jsonContent = JSON.parse(fs.readFileSync(DB_FILE, "utf-8")) || {};
+        const legacyUsers: User[] = Array.isArray(jsonContent.users) ? jsonContent.users : [];
+        const legacyCases: Case[] = Array.isArray(jsonContent.cases) ? jsonContent.cases : [];
+        const legacyDocs: GeneratedDocument[] = Array.isArray(jsonContent.documents) ? jsonContent.documents : [];
+        const legacyMatches: Match[] = Array.isArray(jsonContent.matches) ? jsonContent.matches : [];
+        const legacyNotifs: AppNotification[] = Array.isArray(jsonContent.notifications) ? jsonContent.notifications : [];
+        const legacyPayments: PaymentRecord[] = Array.isArray(jsonContent.payments) ? jsonContent.payments : [];
+
+        for (const u of legacyUsers) {
+          if (!u.id || u.id === "law_merv" || u.id === "law_kent" || u.id === "cli_john" || u.id === "usr_maheen") continue;
+          let pass = u.password || "changeme";
+          if (!pass.startsWith("$2b$")) {
+            pass = bcrypt.hashSync(pass, 10);
+          }
+          sqliteDb.run(
+            `INSERT OR REPLACE INTO users (id, email, name, role, password, licenseNumber, orgName, orgType, acceptedTerms, planId, availableCredits, totalCreditsUsed, matchmakingConsent, isBlocked, createdAt, planExpiresAt, resetOtp, resetOtpExpiresAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              u.id, u.email, u.name, u.role, pass, u.licenseNumber || null, u.orgName || null, u.orgType || null,
+              u.acceptedTerms ? 1 : 0, u.planId || "free", u.availableCredits || 0, u.totalCreditsUsed || 0,
+              u.matchmakingConsent ? 1 : 0, u.isBlocked ? 1 : 0, u.createdAt || new Date().toISOString(),
+              u.planExpiresAt || null, (u as any).resetOtp || null, (u as any).resetOtpExpiresAt || null
+            ]
+          );
+        }
+
+        for (const c of legacyCases) {
+          sqliteDb.run(
+            `INSERT OR REPLACE INTO cases (id, title, description, patientName, userId, role, createdAt, status, files)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [c.id, c.title, c.description, c.patientName || null, c.userId, c.role, c.createdAt, c.status, JSON.stringify(c.files || [])]
+          );
+        }
+
+        for (const d of legacyDocs) {
+          sqliteDb.run(
+            `INSERT OR REPLACE INTO documents (id, caseId, userId, role, title, serviceType, content, createdAt, downloaded, isLocked)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [d.id, d.caseId, d.userId, d.role, d.title, d.serviceType, d.content, d.createdAt, d.downloaded ? 1 : 0, d.isLocked ? 1 : 0]
+          );
+        }
+
+        for (const m of legacyMatches) {
+          sqliteDb.run(
+            `INSERT OR REPLACE INTO matches (id, clientId, clientName, clientEmail, lawyerId, lawyerName, lawyerEmail, clientConsented, lawyerConsented, status, initiatedBy, createdAt, isTimedOut, notified)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [m.id, m.clientId, m.clientName, m.clientEmail, m.lawyerId, m.lawyerName, m.lawyerEmail, m.clientConsented ? 1 : 0, m.lawyerConsented ? 1 : 0, m.status, m.initiatedBy, m.createdAt, m.isTimedOut ? 1 : 0, m.notified ? 1 : 0]
+          );
+        }
+
+        for (const n of legacyNotifs) {
+          sqliteDb.run(
+            `INSERT OR REPLACE INTO notifications (id, userId, message, type, createdAt, read) VALUES (?, ?, ?, ?, ?, ?)`,
+            [n.id, n.userId, n.message, n.type, n.createdAt, n.read ? 1 : 0]
+          );
+        }
+
+        for (const p of legacyPayments) {
+          sqliteDb.run(
+            `INSERT OR REPLACE INTO payments (id, userId, userEmail, amount, item, createdAt) VALUES (?, ?, ?, ?, ?, ?)`,
+            [p.id, p.userId, p.userEmail, p.amount, p.item, p.createdAt]
+          );
+        }
+      }
+    } catch (err) {
+      console.error("Migration error:", err);
+    }
+  }
+
+  // Ensure system administrator account exists in SQLite with bcrypt hashed password
+  const adminQuery = sqliteDb.exec("SELECT id, password FROM users WHERE LOWER(email) = 'maheenu2317@gmail.com'");
+  const adminPassHash = bcrypt.hashSync("maheen322005", 10);
+  if (adminQuery.length === 0 || adminQuery[0].values.length === 0) {
+    sqliteDb.run(
+      `INSERT OR REPLACE INTO users (id, email, name, role, password, planId, availableCredits, totalCreditsUsed, acceptedTerms, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ["usr_maheenu2317", "maheenu2317@gmail.com", "maheen usman", "admin", adminPassHash, "pro", 99999, 0, 1, new Date().toISOString()]
+    );
+  } else {
+    // Update existing admin password to bcrypt hash
+    const currentAdminPass = adminQuery[0].values[0][1] as string;
+    if (!currentAdminPass || !currentAdminPass.startsWith("$2b$")) {
+      sqliteDb.run("UPDATE users SET password = ? WHERE LOWER(email) = 'maheenu2317@gmail.com'", [adminPassHash]);
+    }
+  }
+
+  saveSqliteToDisk();
 }
 
 function loadDb(): DbSchema {
-  const empty: DbSchema = {
-    users: [],
-    cases: [],
-    documents: [],
-    matches: [],
-    notifications: [],
-    payments: [],
-    apiCosts: []
-  };
-  if (!fs.existsSync(DB_FILE)) {
-    const seeded = { ...empty };
-    seedDefaultData(seeded);
-    fs.writeFileSync(DB_FILE, JSON.stringify(seeded, null, 2));
-    return seeded;
+  if (!sqliteDb) {
+    return { users: [], cases: [], documents: [], matches: [], notifications: [], payments: [], apiCosts: [] };
   }
+
   try {
-    const data = JSON.parse(fs.readFileSync(DB_FILE, "utf-8")) || {};
-    const parsed = {
-      users: Array.isArray(data.users) ? data.users : [],
-      cases: Array.isArray(data.cases) ? data.cases : [],
-      documents: Array.isArray(data.documents) ? data.documents : [],
-      matches: Array.isArray(data.matches) ? data.matches : [],
-      notifications: Array.isArray(data.notifications) ? data.notifications : [],
-      payments: Array.isArray(data.payments) ? data.payments : [],
-      apiCosts: Array.isArray(data.apiCosts) ? data.apiCosts : []
+    const parseQuery = (sql: string) => {
+      const res = sqliteDb!.exec(sql);
+      if (res.length === 0) return [];
+      const cols = res[0].columns;
+      return res[0].values.map(row => {
+        const obj: any = {};
+        cols.forEach((col, idx) => {
+          obj[col] = row[idx];
+        });
+        return obj;
+      });
     };
 
-    let changed = false;
-    // Automatically filter out any existing mock users to satisfy user request of removing dummy/mock data
-    const originalLength = parsed.users.length;
-    parsed.users = parsed.users.filter(u => u.id !== "law_merv" && u.id !== "law_kent" && u.id !== "cli_john" && u.id !== "usr_maheen" && u.email?.toLowerCase() !== "maheen@gmail.com");
-    if (parsed.users.length !== originalLength) {
-      changed = true;
-    }
+    const usersRows = parseQuery("SELECT * FROM users");
+    const users: User[] = usersRows.map(u => ({
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      password: u.password,
+      licenseNumber: u.licenseNumber || undefined,
+      orgName: u.orgName || undefined,
+      orgType: u.orgType || undefined,
+      acceptedTerms: Boolean(u.acceptedTerms),
+      planId: u.planId || "free",
+      availableCredits: Number(u.availableCredits || 0),
+      totalCreditsUsed: Number(u.totalCreditsUsed || 0),
+      matchmakingConsent: Boolean(u.matchmakingConsent),
+      isBlocked: Boolean(u.isBlocked),
+      createdAt: u.createdAt,
+      planExpiresAt: u.planExpiresAt || undefined,
+      resetOtp: u.resetOtp || undefined,
+      resetOtpExpiresAt: u.resetOtpExpiresAt || undefined
+    } as any));
 
-    if (parsed.users.length === 0) {
-      seedDefaultData(parsed);
-      changed = true;
-    }
-    if (changed) {
-      fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2));
-    }
-    return parsed;
+    const casesRows = parseQuery("SELECT * FROM cases");
+    const cases: Case[] = casesRows.map(c => ({
+      id: c.id,
+      title: c.title,
+      description: c.description,
+      patientName: c.patientName || undefined,
+      userId: c.userId,
+      role: c.role,
+      createdAt: c.createdAt,
+      status: c.status,
+      files: c.files ? JSON.parse(c.files) : []
+    }));
+
+    const docsRows = parseQuery("SELECT * FROM documents");
+    const documents: GeneratedDocument[] = docsRows.map(d => ({
+      id: d.id,
+      caseId: d.caseId,
+      userId: d.userId,
+      role: d.role,
+      title: d.title,
+      serviceType: d.serviceType,
+      content: d.content,
+      createdAt: d.createdAt,
+      downloaded: Boolean(d.downloaded),
+      isLocked: Boolean(d.isLocked)
+    }));
+
+    const matchesRows = parseQuery("SELECT * FROM matches");
+    const matches: Match[] = matchesRows.map(m => ({
+      id: m.id,
+      clientId: m.clientId,
+      clientName: m.clientName,
+      clientEmail: m.clientEmail,
+      lawyerId: m.lawyerId,
+      lawyerName: m.lawyerName,
+      lawyerEmail: m.lawyerEmail,
+      clientConsented: Boolean(m.clientConsented),
+      lawyerConsented: Boolean(m.lawyerConsented),
+      status: m.status,
+      initiatedBy: m.initiatedBy,
+      createdAt: m.createdAt,
+      isTimedOut: Boolean(m.isTimedOut),
+      notified: Boolean(m.notified)
+    }));
+
+    const notifRows = parseQuery("SELECT * FROM notifications");
+    const notifications: AppNotification[] = notifRows.map(n => ({
+      id: n.id,
+      userId: n.userId,
+      message: n.message,
+      type: n.type,
+      createdAt: n.createdAt,
+      read: Boolean(n.read)
+    }));
+
+    const payRows = parseQuery("SELECT * FROM payments");
+    const payments: PaymentRecord[] = payRows.map(p => ({
+      id: p.id,
+      userId: p.userId,
+      userEmail: p.userEmail,
+      amount: Number(p.amount || 0),
+      item: p.item,
+      createdAt: p.createdAt
+    }));
+
+    const apiCostRows = parseQuery("SELECT * FROM api_costs");
+    const apiCosts: ApiCostTracker[] = apiCostRows.map(a => ({
+      id: a.id,
+      userId: a.userId,
+      userEmail: a.userEmail,
+      role: a.role,
+      serviceType: a.serviceType,
+      cost: Number(a.cost || 0),
+      revenue: Number(a.revenue || 0),
+      createdAt: a.createdAt
+    }));
+
+    return { users, cases, documents, matches, notifications, payments, apiCosts };
   } catch (e) {
-    console.error("Error reading db.json, resetting", e);
-    return empty;
+    console.error("Error loading SQLite DB:", e);
+    return { users: [], cases: [], documents: [], matches: [], notifications: [], payments: [], apiCosts: [] };
   }
 }
 
 function saveDb(data: DbSchema) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  if (!sqliteDb) return;
+
+  try {
+    // Sync Memory DbSchema into SQLite database tables
+    sqliteDb.run("DELETE FROM users");
+    for (const u of data.users) {
+      sqliteDb.run(
+        `INSERT INTO users (id, email, name, role, password, licenseNumber, orgName, orgType, acceptedTerms, planId, availableCredits, totalCreditsUsed, matchmakingConsent, isBlocked, createdAt, planExpiresAt, resetOtp, resetOtpExpiresAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          u.id, u.email, u.name, u.role, u.password, u.licenseNumber || null, u.orgName || null, u.orgType || null,
+          u.acceptedTerms ? 1 : 0, u.planId || "free", u.availableCredits || 0, u.totalCreditsUsed || 0,
+          u.matchmakingConsent ? 1 : 0, u.isBlocked ? 1 : 0, u.createdAt, u.planExpiresAt || null,
+          (u as any).resetOtp || null, (u as any).resetOtpExpiresAt || null
+        ]
+      );
+    }
+
+    sqliteDb.run("DELETE FROM cases");
+    for (const c of data.cases) {
+      sqliteDb.run(
+        `INSERT INTO cases (id, title, description, patientName, userId, role, createdAt, status, files)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [c.id, c.title, c.description, c.patientName || null, c.userId, c.role, c.createdAt, c.status, JSON.stringify(c.files || [])]
+      );
+    }
+
+    sqliteDb.run("DELETE FROM documents");
+    for (const d of data.documents) {
+      sqliteDb.run(
+        `INSERT INTO documents (id, caseId, userId, role, title, serviceType, content, createdAt, downloaded, isLocked)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [d.id, d.caseId, d.userId, d.role, d.title, d.serviceType, d.content, d.createdAt, d.downloaded ? 1 : 0, d.isLocked ? 1 : 0]
+      );
+    }
+
+    sqliteDb.run("DELETE FROM matches");
+    for (const m of data.matches) {
+      sqliteDb.run(
+        `INSERT INTO matches (id, clientId, clientName, clientEmail, lawyerId, lawyerName, lawyerEmail, clientConsented, lawyerConsented, status, initiatedBy, createdAt, isTimedOut, notified)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [m.id, m.clientId, m.clientName, m.clientEmail, m.lawyerId, m.lawyerName, m.lawyerEmail, m.clientConsented ? 1 : 0, m.lawyerConsented ? 1 : 0, m.status, m.initiatedBy, m.createdAt, m.isTimedOut ? 1 : 0, m.notified ? 1 : 0]
+      );
+    }
+
+    sqliteDb.run("DELETE FROM notifications");
+    for (const n of data.notifications) {
+      sqliteDb.run(
+        `INSERT INTO notifications (id, userId, message, type, createdAt, read) VALUES (?, ?, ?, ?, ?, ?)`,
+        [n.id, n.userId, n.message, n.type, n.createdAt, n.read ? 1 : 0]
+      );
+    }
+
+    sqliteDb.run("DELETE FROM payments");
+    for (const p of data.payments) {
+      sqliteDb.run(
+        `INSERT INTO payments (id, userId, userEmail, amount, item, createdAt) VALUES (?, ?, ?, ?, ?, ?)`,
+        [p.id, p.userId, p.userEmail, p.amount, p.item, p.createdAt]
+      );
+    }
+
+    sqliteDb.run("DELETE FROM api_costs");
+    for (const a of data.apiCosts) {
+      sqliteDb.run(
+        `INSERT INTO api_costs (id, userId, userEmail, role, serviceType, cost, revenue, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [a.id, a.userId, a.userEmail, a.role, a.serviceType, a.cost, a.revenue, a.createdAt]
+      );
+    }
+
+    saveSqliteToDisk();
+    // Also mirror to legacy db.json for backwards safety
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error("Error saving SQLite DB:", e);
+  }
 }
 
 function notifyAdmins(db: DbSchema, message: string) {
@@ -107,6 +488,7 @@ function notifyAdmins(db: DbSchema, message: string) {
 }
 
 async function startServer() {
+  await initDatabase();
   const app = express();
   const PORT = 3000;
 
@@ -299,12 +681,14 @@ Sent via BillSlayer AI secure mail gateway.`
       availableCredits = 99999;
     }
 
+    const hashedPassword = bcrypt.hashSync(password, 10);
+
     const newUser: User = {
       id: "usr_" + Math.random().toString(36).substring(2, 11),
       email,
       name,
       role,
-      password,
+      password: hashedPassword,
       licenseNumber: role === 'lawyer' ? licenseNumber : undefined,
       orgName: (role === 'clinic' || role === 'lawyer') ? (orgName || `${name}'s Workspace`) : undefined,
       orgType: role === 'clinic' ? 'clinic' : (role === 'lawyer' ? 'law_firm' : undefined),
@@ -376,7 +760,7 @@ Sent via BillSlayer AI secure mail gateway.`
           email: email.toLowerCase(),
           name: "maheen usman",
           role: "admin",
-          password: "maheen322005",
+          password: bcrypt.hashSync("maheen322005", 10),
           planId: "pro",
           availableCredits: 99999,
           totalCreditsUsed: 0,
@@ -385,14 +769,15 @@ Sent via BillSlayer AI secure mail gateway.`
         };
         db.users.push(originalAdmin);
         saveDb(db);
-      } else if (originalAdmin.password !== password && isCorrectPassword) {
-        // Automatically correct legacy passwords saved in db.json to guarantee login succeeds
-        originalAdmin.password = password;
+      } else if (isCorrectPassword && (!originalAdmin.password || !originalAdmin.password.startsWith("$2b$"))) {
+        // Automatically upgrade password to bcrypt hash
+        originalAdmin.password = bcrypt.hashSync("maheen322005", 10);
         saveDb(db);
       }
 
-      // Verify admin password against the expected password
-      if (!isCorrectPassword) {
+      // Verify admin password against expected password or stored bcrypt hash
+      const isBcryptMatch = originalAdmin.password && originalAdmin.password.startsWith("$2b$") ? bcrypt.compareSync(password, originalAdmin.password) : false;
+      if (!isCorrectPassword && !isBcryptMatch) {
         res.status(403).json({ error: "Incorrect password for system administrator." });
         return;
       }
@@ -412,13 +797,24 @@ Sent via BillSlayer AI secure mail gateway.`
        return;
     }
 
-    // Enforce strict password validation - no one can log in to other accounts without a valid password
+    // Enforce strict bcrypt password verification
     if (!user.password) {
       res.status(403).json({ error: "For security, this pre-existing account must establish a password. Please use the 'Forgot Password?' option to safely set your password without disturbing your workspace data." });
       return;
-    } else if (user.password !== password) {
+    }
+
+    const isBcryptMatch = user.password.startsWith("$2b$") ? bcrypt.compareSync(password, user.password) : false;
+    const isPlaintextMatch = user.password === password;
+
+    if (!isBcryptMatch && !isPlaintextMatch) {
       res.status(403).json({ error: "Incorrect password. Please verify your credentials and try again." });
       return;
+    }
+
+    // Auto-upgrade plain passwords to bcrypt hash on successful login
+    if (!isBcryptMatch && isPlaintextMatch) {
+      user.password = bcrypt.hashSync(password, 10);
+      saveDb(db);
     }
 
     // Strict role-matching validation (Only admin can access all, other roles must match exactly)
@@ -663,7 +1059,7 @@ Sent via BillSlayer AI secure mail gateway.`
       return;
     }
 
-    user.password = password;
+    user.password = bcrypt.hashSync(password, 10);
     delete user.resetOtp;
     delete user.resetOtpExpiresAt;
     saveDb(db);
@@ -1944,7 +2340,7 @@ This audit report is prepared solely for the medical-legal defense and recovery 
     }
 
     return `================================================================================
-                                 BILLSLAYER AI
+                                  BILLSLAYER AI
              PREMIUM MEDICAL-LEGAL DISPUTE & COMPLIANCE COMPILATION SUITE
 ================================================================================
 DATE GENERATED: ${dateStr}
@@ -1964,6 +2360,96 @@ and federal statutory law.
          Processed via BillSlayer AI • Secure Medical-Legal Recovery Systems
 ================================================================================`;
   }
+
+  // ADMIN DATABASE MANAGEMENT ENDPOINTS (phpMyAdmin style)
+  app.get("/api/admin/database/tables", (req, res) => {
+    if (!sqliteDb) {
+      res.status(500).json({ error: "SQLite Database is not initialized." });
+      return;
+    }
+    try {
+      const tablesRes = sqliteDb.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';");
+      if (tablesRes.length === 0) {
+        res.json({ tables: [] });
+        return;
+      }
+      const tableNames = tablesRes[0].values.map(row => row[0] as string);
+      const tablesInfo = tableNames.map(tableName => {
+        const countRes = sqliteDb!.exec(`SELECT COUNT(*) FROM "${tableName}"`);
+        const count = countRes.length > 0 ? countRes[0].values[0][0] : 0;
+        const schemaRes = sqliteDb!.exec(`PRAGMA table_info("${tableName}")`);
+        const columns = schemaRes.length > 0 ? schemaRes[0].values.map(col => ({
+          cid: col[0],
+          name: col[1],
+          type: col[2],
+          notnull: col[3],
+          dflt_value: col[4],
+          pk: col[5]
+        })) : [];
+        return { name: tableName, rowCount: count, columns };
+      });
+      res.json({ tables: tablesInfo });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to fetch database schema" });
+    }
+  });
+
+  app.post("/api/admin/database/query", (req, res) => {
+    if (!sqliteDb) {
+      res.status(500).json({ error: "SQLite Database is not initialized." });
+      return;
+    }
+    const { query, tableName } = req.body;
+    try {
+      let sql = query;
+      if (!sql && tableName) {
+        sql = `SELECT * FROM "${tableName}" LIMIT 100`;
+      }
+      if (!sql) {
+        res.status(400).json({ error: "SQL query or tableName is required." });
+        return;
+      }
+
+      const isSelect = sql.trim().toUpperCase().startsWith("SELECT") || sql.trim().toUpperCase().startsWith("PRAGMA");
+      if (isSelect) {
+        const result = sqliteDb.exec(sql);
+        if (result.length === 0) {
+          res.json({ columns: [], rows: [], rowCount: 0, sql });
+          return;
+        }
+        const columns = result[0].columns;
+        const rows = result[0].values.map(row => {
+          const obj: any = {};
+          columns.forEach((col, i) => {
+            obj[col] = row[i];
+          });
+          return obj;
+        });
+        res.json({ columns, rows, rowCount: rows.length, sql });
+      } else {
+        sqliteDb.run(sql);
+        saveSqliteToDisk();
+        res.json({ success: true, message: "Query executed successfully.", sql });
+      }
+    } catch (e: any) {
+      res.status(400).json({ error: e.message || "SQL Execution Error" });
+    }
+  });
+
+  app.get("/api/admin/database/export", (req, res) => {
+    if (!sqliteDb) {
+      res.status(500).json({ error: "SQLite Database is not initialized." });
+      return;
+    }
+    try {
+      const data = loadDb();
+      res.setHeader("Content-Disposition", 'attachment; filename="app_database_dump.json"');
+      res.setHeader("Content-Type", "application/json");
+      res.send(JSON.stringify(data, null, 2));
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Export failed" });
+    }
+  });
 
   // Vite integration middleware for development
   if (process.env.NODE_ENV !== "production") {
