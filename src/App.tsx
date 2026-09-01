@@ -294,7 +294,7 @@ export default function App() {
                     <span className="text-[9px] font-black uppercase text-emerald-800 tracking-wider px-2">Portal:</span>
                     <button
                       onClick={() => {
-                        const updated = { ...currentUser, viewRole: "admin" };
+                        const updated = { ...currentUser, viewRole: "admin" as UserRole };
                         setCurrentUser(updated);
                         localStorage.setItem("billslayer_session", JSON.stringify(updated));
                         setActiveTab("home");
@@ -309,7 +309,7 @@ export default function App() {
                     </button>
                     <button
                       onClick={() => {
-                        const updated = { ...currentUser, viewRole: "client" };
+                        const updated = { ...currentUser, viewRole: "client" as UserRole };
                         setCurrentUser(updated);
                         localStorage.setItem("billslayer_session", JSON.stringify(updated));
                         setActiveTab("home");
@@ -324,7 +324,7 @@ export default function App() {
                     </button>
                     <button
                       onClick={() => {
-                        const updated = { ...currentUser, viewRole: "lawyer" };
+                        const updated = { ...currentUser, viewRole: "lawyer" as UserRole };
                         setCurrentUser(updated);
                         localStorage.setItem("billslayer_session", JSON.stringify(updated));
                         setActiveTab("home");
@@ -339,7 +339,7 @@ export default function App() {
                     </button>
                     <button
                       onClick={() => {
-                        const updated = { ...currentUser, viewRole: "clinic" };
+                        const updated = { ...currentUser, viewRole: "clinic" as UserRole };
                         setCurrentUser(updated);
                         localStorage.setItem("billslayer_session", JSON.stringify(updated));
                         setActiveTab("home");
@@ -420,7 +420,7 @@ export default function App() {
             </div>
             <button 
               onClick={() => {
-                const updated = { ...currentUser, viewRole: "admin" };
+                const updated = { ...currentUser, viewRole: "admin" as UserRole };
                 setCurrentUser(updated);
                 localStorage.setItem("billslayer_session", JSON.stringify(updated));
               }}
@@ -495,11 +495,19 @@ export default function App() {
                 </motion.div>
               ) : (
                 /* REDESIGNED LANDING PAGE — IMMERSIVE, INTUITIVE & MINIMAL (MINT BRANDED STYLE) */
-                <LandingPage 
-                  onTriggerAuth={triggerAuthFlow} 
-                  onNavigate={handleNavigateToSection} 
-                  pendingScrollSection={scrollToSection} 
-                />
+                <motion.div
+                  key="landing_view"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <LandingPage
+                    onTriggerAuth={triggerAuthFlow}
+                    onNavigate={handleNavigateToSection}
+                    pendingScrollSection={scrollToSection}
+                  />
+                </motion.div>
               )}
             </>
           )}

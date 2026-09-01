@@ -9,6 +9,7 @@ export interface User {
   licenseNumber?: string;
   orgName?: string;
   orgType?: 'clinic' | 'law_firm';
+  bio?: string;
   acceptedTerms: boolean;
   planId: string; // 'free' | 'basic' | 'pro' | 'enterprise'
   availableCredits: number;
@@ -33,16 +34,6 @@ export interface BillItem {
   severity: "high" | "medium" | "low";
 }
 
-export interface CaseFile {
-  id: string;
-  patientName: string;
-  intakeDate: string;
-  totalBill: number;
-  savedAmount: number;
-  status: "Ingested" | "Scrubbed" | "Audited" | "Appealed";
-  codesCount: number;
-}
-
 export interface ChronologyEvent {
   id: string;
   date: string;
@@ -61,7 +52,33 @@ export interface Case {
   role: UserRole;
   createdAt: string;
   status: string;
-  files: Array<{ name: string; size: number; content?: string }>;
+  fileCount?: number;
+}
+
+export type OcrStatus = 'pending' | 'processing' | 'done' | 'failed' | 'skipped';
+export type ValidationStatus = 'pending' | 'valid' | 'rejected';
+
+export interface CaseFile {
+  id: string;
+  caseId: string;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  ocrText?: string;
+  ocrStatus: OcrStatus;
+  validationStatus: ValidationStatus;
+  rejectionReason?: string;
+  createdAt: string;
+}
+
+export interface BillingAuditFinding {
+  cptCode: string;
+  description: string;
+  statedAmount: number;
+  adjustedAmount: number;
+  violationType: 'upcoded' | 'duplicate' | 'unbundled' | 'none';
+  severity: 'high' | 'medium' | 'low';
+  reason: string;
 }
 
 export interface GeneratedDocument {

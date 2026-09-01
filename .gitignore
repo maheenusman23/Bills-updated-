@@ -7,3 +7,12 @@ coverage/
 .env*
 !.env.example
 db.json
+app_database.sqlite
+bin/minio.exe
+minio-data/
+*.sqlite
+pglite-data/
+eng.traineddata
+scripts/.walkthrough-screenshots/
+.claude/
+billslayer ai database.db

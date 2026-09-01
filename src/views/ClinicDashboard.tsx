@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { User, Case, GeneratedDocument, AppNotification, PLANS, PRICING_PER_CASE } from "../types";
+import { User, Case, CaseFile, GeneratedDocument, AppNotification, PLANS, PRICING_PER_CASE } from "../types";
 import PDFPreview from "../components/PDFPreview";
 import { downloadAsPDF, downloadAsWord } from "../lib/pdfGenerator";
 import TourGuide from "../components/TourGuide";
@@ -24,11 +24,12 @@ export default function ClinicDashboard({ user, onRefreshUser }: ClinicDashboard
   const [caseTitle, setCaseTitle] = useState("");
   const [caseDesc, setCaseDesc] = useState("");
   const [patientName, setPatientName] = useState("");
-  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; size: number; content?: string }>>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [dragActive, setDragActive] = useState(false);
 
   // Active generation case state
   const [selectedCase, setSelectedCase] = useState<Case | null>(null);
+  const [selectedCaseFiles, setSelectedCaseFiles] = useState<CaseFile[]>([]);
   const [selectedService, setSelectedService] = useState<string>("insurance_appeal");
   const [promptNotes, setPromptNotes] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -64,6 +65,41 @@ export default function ClinicDashboard({ user, onRefreshUser }: ClinicDashboard
   useEffect(() => {
     fetchUserData();
   }, [user]);
+
+  // Poll for uploaded file OCR/validation status on the currently selected case
+  useEffect(() => {
+    if (!selectedCase) {
+      setSelectedCaseFiles([]);
+      return;
+    }
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/cases/${selectedCase.id}/files?userId=${user.id}`);
+        if (!res.ok) return;
+        const data: CaseFile[] = await res.json();
+        if (cancelled) return;
+        setSelectedCaseFiles(data);
+
+        const stillProcessing = data.some(f => f.ocrStatus === "pending" || f.ocrStatus === "processing");
+        if (stillProcessing) {
+          timer = setTimeout(poll, 3000);
+        }
+      } catch (e) {
+        console.error("Error polling case files", e);
+      }
+    };
+
+    poll();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [selectedCase, user.id]);
 
   const fetchUserData = async () => {
     try {
@@ -120,18 +156,14 @@ export default function ClinicDashboard({ user, onRefreshUser }: ClinicDashboard
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const MAX_SIZE_KB = 5120; // 5MB limit
       const exceededFiles: string[] = [];
-      const validFiles: Array<{ name: string; size: number; content?: string }> = [];
+      const validFiles: File[] = [];
 
-      Array.from(e.dataTransfer.files).forEach((f: any) => {
+      Array.from(e.dataTransfer.files).forEach((f: File) => {
         const sizeKB = Math.round(f.size / 1024);
         if (sizeKB > MAX_SIZE_KB) {
           exceededFiles.push(`${f.name} (${(f.size / (1024 * 1024)).toFixed(2)} MB)`);
         } else {
-          validFiles.push({
-            name: f.name,
-            size: sizeKB,
-            content: `Simulated OCR content for clinical file: ${f.name}`
-          });
+          validFiles.push(f);
         }
       });
 
@@ -153,18 +185,14 @@ export default function ClinicDashboard({ user, onRefreshUser }: ClinicDashboard
     if (e.target.files && e.target.files.length > 0) {
       const MAX_SIZE_KB = 5120; // 5MB limit
       const exceededFiles: string[] = [];
-      const validFiles: Array<{ name: string; size: number; content?: string }> = [];
+      const validFiles: File[] = [];
 
-      Array.from(e.target.files).forEach((f: any) => {
+      Array.from(e.target.files).forEach((f: File) => {
         const sizeKB = Math.round(f.size / 1024);
         if (sizeKB > MAX_SIZE_KB) {
           exceededFiles.push(`${f.name} (${(f.size / (1024 * 1024)).toFixed(2)} MB)`);
         } else {
-          validFiles.push({
-            name: f.name,
-            size: sizeKB,
-            content: `Simulated OCR content for clinical file: ${f.name}`
-          });
+          validFiles.push(f);
         }
       });
 
@@ -205,12 +233,39 @@ export default function ClinicDashboard({ user, onRefreshUser }: ClinicDashboard
           role: user.viewRole || user.role,
           title: caseTitle,
           description: caseDesc,
-          patientName,
-          files: uploadedFiles
+          patientName
         })
       });
 
       if (res.ok) {
+        const newCase = await res.json();
+
+        if (uploadedFiles.length > 0) {
+          const uploadResults = await Promise.all(
+            uploadedFiles.map(async (file) => {
+              const fd = new FormData();
+              fd.append("file", file);
+              fd.append("userId", user.id);
+              const uploadRes = await fetch(`/api/cases/${newCase.id}/files`, {
+                method: "POST",
+                body: fd
+              });
+              if (!uploadRes.ok) {
+                const errData = await uploadRes.json().catch(() => ({}));
+                return { name: file.name, error: errData.error || "Upload failed" };
+              }
+              return null;
+            })
+          );
+
+          const rejected = uploadResults.filter((r): r is { name: string; error: string } => r !== null);
+          if (rejected.length > 0) {
+            const warningMsg = `Case created, but ${rejected.length} file(s) were rejected: ${rejected.map(r => `${r.name} (${r.error})`).join(", ")}`;
+            setCaseError(warningMsg);
+            alert(warningMsg);
+          }
+        }
+
         setShowCreateModal(false);
         setCaseTitle("");
         setCaseDesc("");
@@ -228,7 +283,7 @@ export default function ClinicDashboard({ user, onRefreshUser }: ClinicDashboard
     if (!selectedCase) return;
     setGenerationError(null);
 
-    const hasFiles = selectedCase.files && selectedCase.files.length > 0;
+    const hasFiles = selectedCaseFiles.some(f => f.validationStatus === "valid");
     const hasDesc = (selectedCase.description && selectedCase.description.trim().length > 0) || (promptNotes && promptNotes.trim().length > 0);
 
     if (!hasFiles && !hasDesc) {
@@ -650,6 +705,35 @@ export default function ClinicDashboard({ user, onRefreshUser }: ClinicDashboard
                 </span>
               </div>
 
+              {/* Uploaded file processing status */}
+              {selectedCaseFiles.length > 0 && (
+                <div className="bg-slate-50 rounded-lg border border-slate-200 p-3 mb-4 space-y-1.5">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">File Status</p>
+                  {selectedCaseFiles.map(f => (
+                    <div key={f.id} className="flex items-center gap-2 text-[11px]">
+                      {(f.ocrStatus === "pending" || f.ocrStatus === "processing") && (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 text-slate-400 animate-spin flex-shrink-0" />
+                          <span className="text-slate-500 truncate">{f.originalFilename} — Processing...</span>
+                        </>
+                      )}
+                      {f.validationStatus === "valid" && f.ocrStatus !== "pending" && f.ocrStatus !== "processing" && (
+                        <>
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                          <span className="text-emerald-700 truncate">{f.originalFilename} — Validated</span>
+                        </>
+                      )}
+                      {(f.validationStatus === "rejected" || f.ocrStatus === "failed") && (
+                        <>
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
+                          <span className="text-rose-700 truncate">{f.originalFilename} — {f.rejectionReason || "Processing failed"}</span>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* Warnings and notices */}
               <div className="bg-blue-50 border border-blue-150 rounded-xl p-3.5 text-[11px] text-slate-700 mb-6 flex items-start gap-2.5">
                 <AlertTriangle className="w-4 h-4 text-[#0078d4] flex-shrink-0" />
@@ -971,7 +1055,7 @@ export default function ClinicDashboard({ user, onRefreshUser }: ClinicDashboard
                     {uploadedFiles.map((file, i) => (
                       <div key={i} className="flex justify-between items-center text-[10px] text-slate-600">
                         <span>📄 {file.name}</span>
-                        <span>{file.size} KB</span>
+                        <span>{(file.size / 1024).toFixed(0)} KB</span>
                       </div>
                     ))}
                   </div>

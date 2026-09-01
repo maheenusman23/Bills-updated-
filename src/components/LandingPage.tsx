@@ -1,10 +1,31 @@
-import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import { 
-  ShieldCheck, FileText, Sparkles, ChevronRight, ArrowRight, CheckCircle, 
-  Percent, Database, Landmark, Terminal, ArrowUpRight, Lock, Layers, 
-  Activity, FileCheck, RefreshCw, AlertTriangle, Shield, User, Landmark as CourtIcon
+import React, { useState, useEffect, useRef } from "react";
+import { motion, AnimatePresence, animate } from "motion/react";
+import {
+  ShieldCheck, FileText, Sparkles, ChevronRight, ArrowRight, CheckCircle,
+  Percent, Database, Landmark, Terminal, ArrowUpRight, Lock, Layers,
+  Activity, FileCheck, RefreshCw, AlertTriangle, Shield, User, Landmark as CourtIcon,
+  Mail, Send
 } from "lucide-react";
+
+// Reusable count-up hook: smoothly tweens a displayed number toward `target`
+// whenever it changes, using motion's imperative `animate()` API.
+function useCountUp(target: number, duration: number = 0.6) {
+  const [display, setDisplay] = useState(target);
+  const prevTarget = useRef(target);
+
+  useEffect(() => {
+    const controls = animate(prevTarget.current, target, {
+      duration,
+      ease: "easeOut",
+      onUpdate: (v) => setDisplay(v),
+    });
+    prevTarget.current = target;
+    return () => controls.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
+
+  return display;
+}
 // @ts-ignore
 import lawBg from "../assets/images/law.jpg";
 
@@ -175,6 +196,16 @@ export default function LandingPage({
     if (isSimulating) return;
     setCurrentSuggestionIndex((prev) => (prev + 1) % suggestions.length);
   };
+
+  // Savings Impact Estimator — derived figures, smoothly tweened on change via useCountUp
+  const estimateErrorRate =
+    estimateErrorType === "unbundled" ? 0.42 :
+    estimateErrorType === "upcoded" ? 0.58 :
+    estimateErrorType === "duplicate" ? 0.28 : 0.76;
+  const estimateReliefAmount = Math.round(estimateAmount * estimateErrorRate);
+  const estimateTargetBalance = Math.round(estimateAmount - estimateReliefAmount);
+  const displayedReliefAmount = useCountUp(estimateReliefAmount);
+  const displayedTargetBalance = useCountUp(estimateTargetBalance);
 
   return (
     <div className="w-full bg-gradient-to-b from-[#FAF8F5] via-[#F4F1EA] via-[#EDE9E0] via-[#F4F1EA] to-[#FAF8F5] text-slate-900 antialiased selection:bg-emerald-500/20 selection:text-slate-900 relative overflow-x-hidden">
@@ -666,7 +697,14 @@ export default function LandingPage({
 
 
       {/* SECTION 3: THE LIVE GOVERNANCE PATH FLOW (ZARO STYLE PARTICLES) */}
-      <div id="how-it-works" className="py-16 scroll-mt-24">
+      <motion.div
+        id="how-it-works"
+        className="py-16 scroll-mt-24"
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.3 }}
+        transition={{ duration: 0.6 }}
+      >
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           
           <div className="text-center max-w-3xl mx-auto mb-14">
@@ -809,13 +847,13 @@ export default function LandingPage({
           </div>
 
         </div>
-      </div>
+      </motion.div>
 
 
       {/* SECTION 4: UNIFIED DISPUTE SERVICES PORTFOLIO (Replaces Bento cards with high-performance minimalist services catalog) */}
       <div className="py-16">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          
+
           <div className="text-center max-w-3xl mx-auto mb-14">
             <span className="text-[10px] font-black uppercase tracking-widest text-[#0078d4] bg-sky-50 px-3 py-1 rounded border border-sky-100">
               CORE CAPABILITIES
@@ -829,10 +867,24 @@ export default function LandingPage({
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
-            
+          <motion.div
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto"
+            initial="hidden"
+            whileInView="show"
+            viewport={{ once: true, amount: 0.2 }}
+            variants={{
+              hidden: { opacity: 0 },
+              show: { opacity: 1, transition: { staggerChildren: 0.1 } },
+            }}
+          >
+
             {/* Capability 1 */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-6 hover:border-[#0078d4]/40 transition duration-200 shadow-xs text-left flex flex-col justify-between">
+            <motion.div
+              variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}
+              whileHover={{ y: -4 }}
+              whileTap={{ scale: 0.98 }}
+              className="bg-white border border-slate-200/80 rounded-2xl p-6 hover:border-[#0078d4]/40 transition-colors duration-200 shadow-xs text-left flex flex-col justify-between"
+            >
               <div>
                 <div className="w-10 h-10 rounded-xl bg-sky-50 text-[#0078d4] flex items-center justify-center mb-5 border border-sky-100">
                   <Database className="w-5 h-5" />
@@ -846,10 +898,15 @@ export default function LandingPage({
                 <span className="text-[9px] font-mono text-[#0078d4] bg-sky-50 px-2 py-0.5 rounded font-bold uppercase">CPT/HCPCS</span>
                 <span className="text-[10px] text-slate-400 font-medium">Auto-scanned</span>
               </div>
-            </div>
+            </motion.div>
 
             {/* Capability 2 */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-6 hover:border-[#0078d4]/40 transition duration-200 shadow-xs text-left flex flex-col justify-between">
+            <motion.div
+              variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}
+              whileHover={{ y: -4 }}
+              whileTap={{ scale: 0.98 }}
+              className="bg-white border border-slate-200/80 rounded-2xl p-6 hover:border-[#0078d4]/40 transition-colors duration-200 shadow-xs text-left flex flex-col justify-between"
+            >
               <div>
                 <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-5 border border-emerald-100">
                   <ShieldCheck className="w-5 h-5" />
@@ -863,10 +920,15 @@ export default function LandingPage({
                 <span className="text-[9px] font-mono text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded font-bold uppercase">U.S. Title 29</span>
                 <span className="text-[10px] text-slate-400 font-medium">Pre-compiled</span>
               </div>
-            </div>
+            </motion.div>
 
             {/* Capability 3 */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-6 hover:border-[#0078d4]/40 transition duration-200 shadow-xs text-left flex flex-col justify-between">
+            <motion.div
+              variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}
+              whileHover={{ y: -4 }}
+              whileTap={{ scale: 0.98 }}
+              className="bg-white border border-slate-200/80 rounded-2xl p-6 hover:border-[#0078d4]/40 transition-colors duration-200 shadow-xs text-left flex flex-col justify-between"
+            >
               <div>
                 <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mb-5 border border-amber-100">
                   <FileText className="w-5 h-5" />
@@ -880,10 +942,15 @@ export default function LandingPage({
                 <span className="text-[9px] font-mono text-amber-600 bg-amber-50 px-2 py-0.5 rounded font-bold uppercase font-mono">Fair Health</span>
                 <span className="text-[10px] text-slate-400 font-medium font-mono">Geo-targeted</span>
               </div>
-            </div>
+            </motion.div>
 
             {/* Capability 4 */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-6 hover:border-[#0078d4]/40 transition duration-200 shadow-xs text-left flex flex-col justify-between">
+            <motion.div
+              variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}
+              whileHover={{ y: -4 }}
+              whileTap={{ scale: 0.98 }}
+              className="bg-white border border-slate-200/80 rounded-2xl p-6 hover:border-[#0078d4]/40 transition-colors duration-200 shadow-xs text-left flex flex-col justify-between"
+            >
               <div>
                 <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-5 border border-indigo-100">
                   <Activity className="w-5 h-5" />
@@ -897,9 +964,9 @@ export default function LandingPage({
                 <span className="text-[9px] font-mono text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded font-bold uppercase font-mono">Timeline PDF</span>
                 <span className="text-[10px] text-slate-400 font-medium">Chronological</span>
               </div>
-            </div>
+            </motion.div>
 
-          </div>
+          </motion.div>
 
         </div>
       </div>
@@ -909,7 +976,13 @@ export default function LandingPage({
       <div className="py-16">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           
-          <div className="text-center max-w-3xl mx-auto mb-12">
+          <motion.div
+            className="text-center max-w-3xl mx-auto mb-12"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.3 }}
+            transition={{ duration: 0.6 }}
+          >
             <span className="text-[10px] font-black uppercase tracking-widest text-[#0078d4] bg-sky-50 px-3 py-1 rounded border border-sky-100">
               ECOSYSTEM CONNECTOR
             </span>
@@ -919,7 +992,7 @@ export default function LandingPage({
             <p className="text-slate-600 text-xs sm:text-sm mt-3 max-w-xl mx-auto">
               Your patient records, clinical databases, CMS rules, and legal documents in a single automated framework.
             </p>
-          </div>
+          </motion.div>
 
           {/* Dotted Connections Wheel SVG Canvas Container */}
           <div className="relative max-w-lg mx-auto h-[260px] bg-white border border-slate-200 shadow-md rounded-3xl p-6 flex items-center justify-center overflow-hidden">
@@ -1041,14 +1114,14 @@ export default function LandingPage({
 
               <div className="md:col-span-5 bg-slate-900 text-white rounded-2xl p-6 border border-slate-800 text-left">
                 <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold">Estimated Audit Relief</span>
-                <div className="text-2xl font-black font-mono text-emerald-400 mt-2 font-mono">
-                  -${Math.round(estimateAmount * (estimateErrorType === "unbundled" ? 0.42 : estimateErrorType === "upcoded" ? 0.58 : estimateErrorType === "duplicate" ? 0.28 : 0.76)).toLocaleString()}.00
-                </div>
+                <motion.div className="text-2xl font-black font-mono text-emerald-400 mt-2 font-mono">
+                  -${Math.round(displayedReliefAmount).toLocaleString()}.00
+                </motion.div>
                 <div className="pt-3 border-t border-slate-800 mt-4 flex justify-between items-center text-xs">
                   <span className="text-slate-400 font-bold uppercase">Target Balance:</span>
-                  <span className="font-extrabold font-mono text-white font-mono">
-                    ${Math.round(estimateAmount - (estimateAmount * (estimateErrorType === "unbundled" ? 0.42 : estimateErrorType === "upcoded" ? 0.58 : estimateErrorType === "duplicate" ? 0.28 : 0.76))).toLocaleString()}.00
-                  </span>
+                  <motion.span className="font-extrabold font-mono text-white font-mono">
+                    ${Math.round(displayedTargetBalance).toLocaleString()}.00
+                  </motion.span>
                 </div>
               </div>
             </div>
@@ -1062,7 +1135,13 @@ export default function LandingPage({
       <div id="pricing" className="py-16 scroll-mt-24">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           
-          <div className="text-center max-w-3xl mx-auto mb-14">
+          <motion.div
+            className="text-center max-w-3xl mx-auto mb-14"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.3 }}
+            transition={{ duration: 0.6 }}
+          >
             <span className="text-[10px] font-black uppercase tracking-widest text-[#0078d4] bg-sky-50 px-3 py-1 rounded border border-sky-100">
               PRICING PLANS
             </span>
@@ -1072,12 +1151,26 @@ export default function LandingPage({
             <p className="text-slate-600 text-xs sm:text-sm mt-3 max-w-xl mx-auto">
               Get secure clinical audits with complete pay-per-generation clarity, or scale with professional advocate subscriptions.
             </p>
-          </div>
+          </motion.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto items-stretch">
-            
+          <motion.div
+            className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto items-stretch"
+            initial="hidden"
+            whileInView="show"
+            viewport={{ once: true, amount: 0.2 }}
+            variants={{
+              hidden: { opacity: 0 },
+              show: { opacity: 1, transition: { staggerChildren: 0.1 } },
+            }}
+          >
+
             {/* Plan 1 */}
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 flex flex-col justify-between shadow-sm relative hover:border-indigo-500 transition duration-250 text-left">
+            <motion.div
+              variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}
+              whileHover={{ y: -4 }}
+              whileTap={{ scale: 0.98 }}
+              className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 flex flex-col justify-between shadow-sm relative hover:border-indigo-500 transition-colors duration-250 text-left"
+            >
               <div>
                 <span className="text-[9px] font-bold uppercase text-slate-400 tracking-wider">Free Account</span>
                 <h3 className="text-lg font-extrabold text-slate-900 uppercase mt-1">One-Time Payer</h3>
@@ -1109,10 +1202,15 @@ export default function LandingPage({
               >
                 Get Started Free
               </button>
-            </div>
+            </motion.div>
 
             {/* Plan 2 */}
-            <div className="bg-white border-2 border-emerald-500 rounded-3xl p-6 sm:p-8 flex flex-col justify-between shadow-md relative hover:shadow-lg transition duration-250 text-left">
+            <motion.div
+              variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}
+              whileHover={{ y: -4 }}
+              whileTap={{ scale: 0.98 }}
+              className="bg-white border-2 border-emerald-500 rounded-3xl p-6 sm:p-8 flex flex-col justify-between shadow-md relative hover:shadow-lg transition-shadow duration-250 text-left"
+            >
               <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-emerald-500 text-white text-[8px] font-black px-4 py-1 rounded-full uppercase tracking-widest">
                 Most Popular
               </div>
@@ -1147,10 +1245,15 @@ export default function LandingPage({
               >
                 Activate Clinic Plan
               </button>
-            </div>
+            </motion.div>
 
             {/* Plan 3 */}
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 flex flex-col justify-between shadow-sm relative hover:border-indigo-500 transition duration-250 text-left">
+            <motion.div
+              variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}
+              whileHover={{ y: -4 }}
+              whileTap={{ scale: 0.98 }}
+              className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 flex flex-col justify-between shadow-sm relative hover:border-indigo-500 transition-colors duration-250 text-left"
+            >
               <div>
                 <span className="text-[9px] font-bold uppercase text-slate-400 tracking-wider">Enterprise Legals</span>
                 <h3 className="text-lg font-extrabold text-slate-900 uppercase mt-1">Elite Lawyer</h3>
@@ -1182,9 +1285,9 @@ export default function LandingPage({
               >
                 Activate Lawyer Plan
               </button>
-            </div>
+            </motion.div>
 
-          </div>
+          </motion.div>
 
         </div>
       </div>
@@ -1225,9 +1328,23 @@ export default function LandingPage({
               </h3>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <motion.div
+              className="grid grid-cols-1 md:grid-cols-3 gap-6"
+              initial="hidden"
+              whileInView="show"
+              viewport={{ once: true, amount: 0.2 }}
+              variants={{
+                hidden: { opacity: 0 },
+                show: { opacity: 1, transition: { staggerChildren: 0.1 } },
+              }}
+            >
               {/* Card 1 */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 flex flex-col justify-between shadow-xs hover:shadow-md transition duration-200 text-left">
+              <motion.div
+                variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}
+                whileHover={{ y: -4 }}
+                whileTap={{ scale: 0.98 }}
+                className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 flex flex-col justify-between shadow-xs hover:shadow-md transition-shadow duration-200 text-left"
+              >
                 <div>
                   <div className="bg-rose-50 border border-rose-100 p-2 rounded-2xl w-11 h-11 flex items-center justify-center mb-5 shrink-0">
                     <AlertTriangle className="w-5 h-5 text-rose-500" />
@@ -1242,10 +1359,15 @@ export default function LandingPage({
                     Most clinical facilities lose 10% or more of annual billing due to clerical coding errors and arbitrary insurance claims denials
                   </p>
                 </div>
-              </div>
+              </motion.div>
 
               {/* Card 2 */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 flex flex-col justify-between shadow-xs hover:shadow-md transition duration-200 text-left">
+              <motion.div
+                variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}
+                whileHover={{ y: -4 }}
+                whileTap={{ scale: 0.98 }}
+                className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 flex flex-col justify-between shadow-xs hover:shadow-md transition-shadow duration-200 text-left"
+              >
                 <div>
                   <div className="bg-emerald-50 border border-emerald-100 p-2 rounded-2xl w-11 h-11 flex items-center justify-center mb-5 shrink-0">
                     <Percent className="w-5 h-5 text-emerald-500" />
@@ -1260,10 +1382,15 @@ export default function LandingPage({
                     Over $31.2 billion in clinical billing claims are rejected by medical insurance groups annually, requiring administrative appeal processing
                   </p>
                 </div>
-              </div>
+              </motion.div>
 
               {/* Card 3 */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 flex flex-col justify-between shadow-xs hover:shadow-md transition duration-200 text-left">
+              <motion.div
+                variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}
+                whileHover={{ y: -4 }}
+                whileTap={{ scale: 0.98 }}
+                className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 flex flex-col justify-between shadow-xs hover:shadow-md transition-shadow duration-200 text-left"
+              >
                 <div>
                   <div className="bg-emerald-50 border border-emerald-100 p-2 rounded-2xl w-11 h-11 flex items-center justify-center mb-5 shrink-0">
                     <ShieldCheck className="w-5 h-5 text-emerald-500" />
@@ -1278,8 +1405,8 @@ export default function LandingPage({
                     Up to 67% of denied medical claims are successfully recovered when supported by professional, CPT-validated dispute appeals letters
                   </p>
                 </div>
-              </div>
-            </div>
+              </motion.div>
+            </motion.div>
           </div>
 
           {/* Learning Portions */}
@@ -1423,11 +1550,22 @@ export default function LandingPage({
                     />
                   </button>
 
-                  {expandedFaq === index && (
-                    <div className="px-6 pb-5 text-xs text-slate-500 leading-relaxed border-t border-slate-100 pt-3 bg-slate-50/50">
-                      {item.a}
-                    </div>
-                  )}
+                  <AnimatePresence initial={false}>
+                    {expandedFaq === index && (
+                      <motion.div
+                        key="answer"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: "easeInOut" }}
+                        className="overflow-hidden"
+                      >
+                        <div className="px-6 pb-5 text-xs text-slate-500 leading-relaxed border-t border-slate-100 pt-3 bg-slate-50/50">
+                          {item.a}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               ))}
             </div>
@@ -1465,7 +1603,7 @@ export default function LandingPage({
                 <div className="space-y-4">
                   <div className="flex gap-4 p-5 bg-emerald-50/40 border border-emerald-100 rounded-2xl items-center">
                     <span className="p-3 bg-emerald-500 text-white rounded-xl flex items-center justify-center font-bold text-lg h-12 w-12 shrink-0 shadow-xs">
-                      📧
+                      <Mail className="w-6 h-6" />
                     </span>
                     <div>
                       <span className="text-[10px] uppercase font-black tracking-wider text-slate-400 block mb-0.5">Contact Email Address</span>
@@ -1478,18 +1616,24 @@ export default function LandingPage({
                 </div>
               </div>
 
-              <div className="mt-6 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl p-4 text-[10px] text-emerald-800 font-medium leading-relaxed">
-                🛡️ <strong>HIPAA Notice:</strong> Please do not submit actual un-redacted clinical medical records or raw SSN numbers via this public support gateway. Redacted dispute summaries are safe.
+              <div className="mt-6 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl p-4 text-[10px] text-emerald-800 font-medium leading-relaxed flex items-start gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0 mt-0.5" /> <span><strong>HIPAA Notice:</strong> Please do not submit actual un-redacted clinical medical records or raw SSN numbers via this public support gateway. Redacted dispute summaries are safe.</span>
               </div>
             </div>
 
             {/* Right Column: Interactive Secure Form */}
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-md text-left relative overflow-hidden flex flex-col justify-between h-full">
+            <motion.div
+              className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-md text-left relative overflow-hidden flex flex-col justify-between h-full"
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.3 }}
+              transition={{ duration: 0.6 }}
+            >
               <div className="absolute top-0 left-0 right-0 h-1 bg-emerald-500"></div>
 
               <div>
                 <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-6 flex items-center gap-2">
-                  <span>📩</span> Submit a Compliance Message
+                  <Send className="w-4 h-4 text-emerald-600" /> Submit a Compliance Message
                 </h3>
 
                 {contactStatus === "success" ? (
@@ -1522,7 +1666,7 @@ export default function LandingPage({
                   <form onSubmit={handleContactSubmit} className="space-y-4">
                     {contactStatus === "error" && (
                       <div className="bg-rose-50 border border-rose-100 text-rose-700 text-xs rounded-xl p-3 flex items-center gap-2 font-semibold">
-                        ⚠️ Transmission failed. Please verify all fields are filled and try again.
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Transmission failed. Please verify all fields are filled and try again.
                       </div>
                     )}
 
@@ -1578,9 +1722,10 @@ export default function LandingPage({
                       ></textarea>
                     </div>
 
-                    <button
+                    <motion.button
                       type="submit"
                       disabled={contactStatus === "sending"}
+                      whileTap={{ scale: 0.97 }}
                       className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] py-3 rounded-xl transition duration-150 uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-sm hover:scale-101"
                     >
                       {contactStatus === "sending" ? (
@@ -1594,18 +1739,24 @@ export default function LandingPage({
                           <ArrowRight className="w-4 h-4" />
                         </>
                       )}
-                    </button>
+                    </motion.button>
                   </form>
                 )}
               </div>
-            </div>
+            </motion.div>
           </div>
 
         </div>
       </div>
       }
 
-      <footer className="bg-[#051713] text-white py-4 border-t border-emerald-500/20 text-left">
+      <motion.footer
+        className="bg-[#051713] text-white py-4 border-t border-emerald-500/20 text-left"
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true, amount: 0.2 }}
+        transition={{ duration: 0.6 }}
+      >
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 mb-4">
             
@@ -1692,7 +1843,7 @@ export default function LandingPage({
             </div>
           </div>
         </div>
-      </footer>
+      </motion.footer>
 
     </div>
   );
